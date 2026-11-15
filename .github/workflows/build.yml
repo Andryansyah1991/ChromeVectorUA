@@ -23,14 +23,18 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Extract project
+        run: unzip -q ChromeVectorUA_fixed_source.zip -d source
 
       - name: Build APK
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
+        working-directory: source
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ChromeVectorUA-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: source/app/build/outputs/apk/debug/*.apk
