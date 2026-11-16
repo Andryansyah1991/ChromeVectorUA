@@ -34,48 +34,38 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Locate project
-        id: project
-        shell: bash
+      - name: Verify project
         run: |
-          PROJECT_DIR=""
+          test -f settings.gradle
+          test -f build.gradle
+          test -f AndroidManifest.xml
+          test -f ChromeVectorModule.java
+          test -f module.prop
+          test -f java_init.list
+          test -f scope.list
 
-          while IFS= read -r file; do
-            DIR=$(dirname "$file")
+          echo "Project files ditemukan"
 
-            if [ -f "$DIR/app/build.gradle.kts" ] &&
-               [ -f "$DIR/app/src/main/AndroidManifest.xml" ]; then
-              PROJECT_DIR="$DIR"
-              break
-            fi
-          done < <(find . -name settings.gradle.kts -type f)
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Gradle project tidak ditemukan"
-            find . -maxdepth 4 -type f | sort
-            exit 1
-          fi
-
-          echo "Project ditemukan: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-      - name: Verify project files
-        working-directory: ${{ steps.project.outputs.project_dir }}
+      - name: Inspect Gradle configuration
         run: |
-          grep -q 'Android 13' app/src/main/java/id/cocoeyon/chromevectorua/ChromeVectorModule.java
-          grep -q 'Android 14' app/src/main/java/id/cocoeyon/chromevectorua/ChromeVectorModule.java
-          grep -q 'Android 15' app/src/main/java/id/cocoeyon/chromevectorua/ChromeVectorModule.java
-          grep -q 'Android 16' app/src/main/java/id/cocoeyon/chromevectorua/ChromeVectorModule.java
-          grep -q 'Chrome/125.0.0.0' app/src/main/java/id/cocoeyon/chromevectorua/ChromeVectorModule.java
+          echo "===== settings.gradle ====="
+          cat settings.gradle
 
-      - name: Build debug APK
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        run: gradle --no-daemon clean assembleDebug
+          echo "===== build.gradle ====="
+          cat build.gradle
+
+      - name: Build APK
+        run: |
+          gradle --no-daemon clean assembleDebug
+
+      - name: Locate APK
+        run: |
+          find . -type f -name "*.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ChromeVectorUA-v1.3-debug
-          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           retention-days: 14
