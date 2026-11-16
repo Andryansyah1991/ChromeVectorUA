@@ -50,18 +50,21 @@ jobs:
           unzip -oq ChromeVectorUA_diagnostic_v1.1.zip -d source
 
           SETTINGS=$(find "$GITHUB_WORKSPACE/source" \
-            -name settings.gradle -print -quit)
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -print -quit)
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle tidak ditemukan"
-            find source -maxdepth 4 -type f | head -100
+            echo "ERROR: Gradle settings file not found"
+            find source -maxdepth 5 -type f
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Project directory: $PROJECT_DIR"
+          echo "===== PROJECT DIRECTORY ====="
+          echo "$PROJECT_DIR"
+
           test -d "$PROJECT_DIR/app"
 
       - name: Build APK
