@@ -1,155 +1,76 @@
-
-name: ChromeVectorUA Build
+name: Build ChromeVectorUA
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - 'ChromeVectorUA_v1.3.1_source_fixed.zip'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: read
 
-concurrency:
-  group: chromevectorua-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    name: Build ChromeVectorUA APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Verify ZIP source
+        run: |
+          test -f ChromeVectorUA_v1.3.1_source_fixed.zip
+
+      - name: Extract source ZIP
+        run: |
+          mkdir -p source
+          unzip -q ChromeVectorUA_v1.3.1_source_fixed.zip -d source
+
+          SETTINGS_FILE=$(find source -name settings.gradle.kts -type f | head -n 1)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: settings.gradle.kts tidak ditemukan"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.7
+      - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Extract v1.3 source
-        shell: bash
+      - name: Build APK
         run: |
-          set -e
-          mkdir -p source
-          unzip -oq ChromeVectorUA_v1.3_source.zip -d source
-          echo "Source extracted successfully"
-          find source -maxdepth 4 -type f | sort
-
-      - name: Detect Gradle project
-        id: project
-        shell: bash
-        run: |
-          set -e
-          PROJECT=""
-
-          while IFS= read -r -d '' SETTINGS; do
-            DIR=$(dirname "$SETTINGS")
-
-            if [ -f "$DIR/app/build.gradle.kts" ] || [ -f "$DIR/app/build.gradle" ]; then
-              PROJECT="$DIR"
-              break
-            fi
-
-            if [ -f "$DIR/build.gradle.kts" ] || [ -f "$DIR/build.gradle" ]; then
-              PROJECT="$DIR"
-              break
-            fi
-          done < <(find source \( -name settings.gradle -o -name settings.gradle.kts \) -print0)
-
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: Gradle project tidak ditemukan"
-            exit 1
-          fi
-
-          echo "Project ditemukan: $PROJECT"
-          echo "project_dir=$PROJECT" >> "$GITHUB_OUTPUT"
-
-      - name: Configure Android Gradle Plugin
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          version = "8.6.1"
-
-          candidates = [
-              Path("build.gradle.kts"),
-              Path("build.gradle")
-          ]
-
-          build_file = next(
-              (p for p in candidates if p.is_file()),
-              None
-          )
-
-          if build_file is None:
-              raise SystemExit("Root build.gradle tidak ditemukan")
-
-          text = build_file.read_text()
-
-          if build_file.suffix == ".kts":
-              pattern = r'id\s*\(\s*["\']com\.android\.application["\']\s*\)(?:\s+version\s+["\'][^"\']+["\'])?'
-              replacement = 'id("com.android.application") version "8.6.1"'
-          else:
-              pattern = r'id\s+["\']com\.android\.application["\'](?:\s+version\s+["\'][^"\']+["\'])?'
-              replacement = "id 'com.android.application' version '8.6.1'"
-
-          updated, count = re.subn(pattern, replacement, text)
-
-          if count == 0:
-              raise SystemExit("Deklarasi plugin Android tidak ditemukan")
-
-          build_file.write_text(updated)
-
-          print("Android Gradle Plugin configured")
-          print(build_file.read_text())
-          PY
-
-      - name: Build debug APK
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        run: |
+          cd "$PROJECT_DIR"
           gradle --no-daemon clean assembleDebug
 
-      - name: Locate and prepare APK
-        id: apk
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
+      - name: Verify APK
         run: |
-          set -e
-
-          APK=$(find . -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            | head -n 1)
+          APK=$(find "$PROJECT_DIR" -path '*/build/outputs/apk/debug/*.apk' -type f | head -n 1)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK tidak ditemukan"
-            find . -name "*.apk"
             exit 1
           fi
 
           mkdir -p "$GITHUB_WORKSPACE/output"
+          cp "$APK" "$GITHUB_WORKSPACE/output/ChromeVectorUA-debug.apk"
 
-          cp "$APK" \
-            "$GITHUB_WORKSPACE/output/ChromeVectorUA-v1.3-debug.apk"
-
-          echo "APK berhasil disiapkan"
-          ls -lh "$GITHUB_WORKSPACE/output/"
-
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ChromeVectorUA-v1.3-debug
-          path: output/ChromeVectorUA-v1.3-debug.apk
+          name: ChromeVectorUA-debug
+          path: output/ChromeVectorUA-debug.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
