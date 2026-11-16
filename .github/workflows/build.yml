@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -26,28 +26,44 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
+      - name: Accept Android SDK licenses
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses > /dev/null
 
-      - name: Extract diagnostic project
+      - name: Install Android SDK
         run: |
-          test -f ChromeVectorUA_diagnostic_v1.1.zip
-          unzip -oq ChromeVectorUA_diagnostic_v1.1.zip -d .
-          echo "===== PROJECT STRUCTURE ====="
-          ls -la
-          test -f settings.gradle
-          test -d app
+          sdkmanager "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Extract project
+        run: |
+          mkdir -p source
+          unzip -oq ChromeVectorUA_diagnostic_v1.1.zip -d source
+
+          SETTINGS=$(find "$GITHUB_WORKSPACE/source" \
+            -name settings.gradle -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle tidak ditemukan"
+            find source -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Project directory: $PROJECT_DIR"
+          test -d "$PROJECT_DIR/app"
 
       - name: Build APK
-        run: gradle assembleDebug --warning-mode all
+        run: |
+          gradle -p "$PROJECT_DIR" assembleDebug \
+            --warning-mode all
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ChromeVectorUA-Diagnostic-v1.1
-          path: app/build/outputs/apk/debug/*.apk
+          path: source/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
