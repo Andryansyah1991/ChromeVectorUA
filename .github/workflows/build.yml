@@ -27,7 +27,7 @@ jobs:
           gradle-version: '8.7'
 
       - name: Extract project
-        run: unzip -q ChromeVectorUA_fixed_source_v2.zip -d source
+        run: unzip -q ChromeVectorUA_diagnostic_v1.1.zip -d source
 
       - name: Build APK
         working-directory: source
