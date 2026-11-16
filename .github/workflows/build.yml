@@ -1,3 +1,4 @@
+
 name: Build ChromeVectorUA
 
 on:
@@ -38,18 +39,15 @@ jobs:
 
       - name: Install Android SDK components
         run: |
-          sdkmanager \\
-            "platform-tools" \\
-            "platforms;android-35" \\
-            "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Extract project
         run: |
           mkdir -p source
           unzip -oq ChromeVectorUA_v1.2.zip -d source
 
-          SETTINGS=$(find "$GITHUB_WORKSPACE/source" \\
-            \\( -name settings.gradle -o -name settings.gradle.kts \\) \\
+          SETTINGS=$(find "$GITHUB_WORKSPACE/source" \
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
             -print -quit)
 
           if [ -z "$SETTINGS" ]; then
