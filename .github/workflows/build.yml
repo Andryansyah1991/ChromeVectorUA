@@ -15,9 +15,9 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build ChromeVectorUA APK
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout source
@@ -34,38 +34,114 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Verify project
+      - name: Extract v1.3 source
         run: |
-          test -f settings.gradle
-          test -f build.gradle
-          test -f AndroidManifest.xml
-          test -f ChromeVectorModule.java
-          test -f module.prop
-          test -f java_init.list
-          test -f scope.list
+          set -e
 
-          echo "Project files ditemukan"
+          ZIP="ChromeVectorUA_v1.3_source.zip"
 
-      - name: Inspect Gradle configuration
+          test -f "$ZIP" || {
+            echo "ERROR: Source ZIP tidak ditemukan"
+            exit 1
+          }
+
+          mkdir -p source
+          unzip -oq "$ZIP" -d source
+
+          echo "Source berhasil diekstrak"
+          find source -maxdepth 4 -type f | sort
+
+      - name: Detect Gradle project
+        id: project
+        shell: bash
         run: |
-          echo "===== settings.gradle ====="
-          cat settings.gradle
+          set -e
 
-          echo "===== build.gradle ====="
-          cat build.gradle
+          PROJECT=""
 
-      - name: Build APK
+          while IFS= read -r -d '' SETTINGS; do
+            DIR=$(dirname "$SETTINGS")
+
+            if [ -f "$DIR/app/build.gradle" ] ||
+               [ -f "$DIR/app/build.gradle.kts" ]; then
+              PROJECT="$DIR"
+              break
+            fi
+
+            if [ -f "$DIR/build.gradle" ] &&
+               [ -f "$DIR/AndroidManifest.xml" ] &&
+               grep -q "com.android.application" "$DIR/build.gradle"; then
+              PROJECT="$DIR"
+              break
+            fi
+          done < <(find source -name settings.gradle -o -name settings.gradle.kts | while read f; do printf '%s\0' "$f"; done)
+
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: Struktur Gradle tidak ditemukan"
+            exit 1
+          fi
+
+          echo "Project: $PROJECT"
+          echo "project_dir=$PROJECT" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Android Gradle Plugin
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          files = list(Path(".").rglob("build.gradle")) + list(Path(".").rglob("build.gradle.kts"))
+
+          found = False
+
+          for path in files:
+              text = path.read_text()
+
+              pattern = r"""(id\s*\(?\s*['"]com\.android\.application['"]\s*\)?)"""
+
+              def replace(match):
+                  global found
+                  found = True
+                  return match.group(1) + " version '8.6.1'"
+
+              text = re.sub(
+                  pattern + r"(?!\s+version)",
+                  replace,
+                  text
+              )
+
+              path.write_text(text)
+
+          if not found:
+              raise SystemExit("ERROR: Deklarasi com.android.application tidak ditemukan")
+
+          print("Android Gradle Plugin disiapkan: 8.6.1")
+          PY
+
+      - name: Build debug APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
           gradle --no-daemon clean assembleDebug
 
-      - name: Locate APK
+      - name: Find APK
+        id: apk
+        working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
-          find . -type f -name "*.apk"
+          APK=$(find . -type f -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK tidak ditemukan"
+            exit 1
+          fi
+
+          echo "APK ditemukan: $APK"
+          echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ChromeVectorUA-v1.3-debug
-          path: "**/build/outputs/apk/debug/*.apk"
+          path: ${{ steps.apk.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
