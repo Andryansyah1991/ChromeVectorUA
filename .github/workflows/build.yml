@@ -1,4 +1,3 @@
-
 name: Build ChromeVectorUA
 
 on:
@@ -39,18 +38,18 @@ jobs:
 
       - name: Install Android SDK components
         run: |
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
+          sdkmanager \\
+            "platform-tools" \\
+            "platforms;android-35" \\
             "build-tools;35.0.0"
 
       - name: Extract project
         run: |
           mkdir -p source
-          unzip -oq ChromeVectorUA_diagnostic_v1.1.zip -d source
+          unzip -oq ChromeVectorUA_v1.2.zip -d source
 
-          SETTINGS=$(find "$GITHUB_WORKSPACE/source" \
-            \( -name settings.gradle -o -name settings.gradle.kts \) \
+          SETTINGS=$(find "$GITHUB_WORKSPACE/source" \\
+            \\( -name settings.gradle -o -name settings.gradle.kts \\) \\
             -print -quit)
 
           if [ -z "$SETTINGS" ]; then
@@ -74,6 +73,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ChromeVectorUA-Diagnostic-v1.1
+          name: ChromeVectorUA-v1.2
           path: source/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
