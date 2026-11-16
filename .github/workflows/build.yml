@@ -1,3 +1,4 @@
+
 name: ChromeVectorUA Build
 
 on:
@@ -35,10 +36,12 @@ jobs:
           gradle-version: '8.7'
 
       - name: Extract v1.3 source
+        shell: bash
         run: |
           set -e
           mkdir -p source
           unzip -oq ChromeVectorUA_v1.3_source.zip -d source
+          echo "Source extracted successfully"
           find source -maxdepth 4 -type f | sort
 
       - name: Detect Gradle project
@@ -67,7 +70,7 @@ jobs:
             exit 1
           fi
 
-          echo "Project: $PROJECT"
+          echo "Project ditemukan: $PROJECT"
           echo "project_dir=$PROJECT" >> "$GITHUB_OUTPUT"
 
       - name: Configure Android Gradle Plugin
@@ -79,21 +82,24 @@ jobs:
           import re
 
           version = "8.6.1"
+
           candidates = [
               Path("build.gradle.kts"),
               Path("build.gradle")
           ]
 
-          build_file = next((p for p in candidates if p.is_file()), None)
+          build_file = next(
+              (p for p in candidates if p.is_file()),
+              None
+          )
 
           if build_file is None:
               raise SystemExit("Root build.gradle tidak ditemukan")
 
           text = build_file.read_text()
 
-          pattern = r'id\s*\(\s*["\']com\.android\.application["\']\s*\)(?:\s+version\s+["\'][^"\']+["\'])?'
-
           if build_file.suffix == ".kts":
+              pattern = r'id\s*\(\s*["\']com\.android\.application["\']\s*\)(?:\s+version\s+["\'][^"\']+["\'])?'
               replacement = 'id("com.android.application") version "8.6.1"'
           else:
               pattern = r'id\s+["\']com\.android\.application["\'](?:\s+version\s+["\'][^"\']+["\'])?'
@@ -105,32 +111,45 @@ jobs:
               raise SystemExit("Deklarasi plugin Android tidak ditemukan")
 
           build_file.write_text(updated)
-          print("Plugin Android Gradle berhasil diperbaiki")
+
+          print("Android Gradle Plugin configured")
           print(build_file.read_text())
           PY
 
       - name: Build debug APK
         working-directory: ${{ steps.project.outputs.project_dir }}
-        run: gradle --no-daemon clean assembleDebug
+        run: |
+          gradle --no-daemon clean assembleDebug
 
-      - name: Locate APK
+      - name: Locate and prepare APK
         id: apk
         working-directory: ${{ steps.project.outputs.project_dir }}
         shell: bash
         run: |
-          APK=$(find . -type f -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
+          set -e
+
+          APK=$(find . -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            | head -n 1)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK tidak ditemukan"
+            find . -name "*.apk"
             exit 1
           fi
 
-          echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK" >> "$GITHUB_OUTPUT"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+
+          cp "$APK" \
+            "$GITHUB_WORKSPACE/output/ChromeVectorUA-v1.3-debug.apk"
+
+          echo "APK berhasil disiapkan"
+          ls -lh "$GITHUB_WORKSPACE/output/"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ChromeVectorUA-v1.3-debug
-          path: ${{ steps.apk.outputs.apk_path }}
+          path: output/ChromeVectorUA-v1.3-debug.apk
           if-no-files-found: error
           retention-days: 14
