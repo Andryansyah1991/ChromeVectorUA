@@ -1,147 +1,69 @@
-name: ChromeVectorUA Build
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-concurrency:
-  group: chromevectorua-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  build:
-    name: Build ChromeVectorUA APK
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle 8.7
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
-      - name: Extract v1.3 source
-        run: |
-          set -e
-
-          ZIP="ChromeVectorUA_v1.3_source.zip"
-
-          test -f "$ZIP" || {
-            echo "ERROR: Source ZIP tidak ditemukan"
-            exit 1
-          }
-
-          mkdir -p source
-          unzip -oq "$ZIP" -d source
-
-          echo "Source berhasil diekstrak"
-          find source -maxdepth 4 -type f | sort
-
-      - name: Detect Gradle project
-        id: project
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT=""
-
-          while IFS= read -r -d '' SETTINGS; do
-            DIR=$(dirname "$SETTINGS")
-
-            if [ -f "$DIR/app/build.gradle" ] ||
-               [ -f "$DIR/app/build.gradle.kts" ]; then
-              PROJECT="$DIR"
-              break
-            fi
-
-            if [ -f "$DIR/build.gradle" ] &&
-               [ -f "$DIR/AndroidManifest.xml" ] &&
-               grep -q "com.android.application" "$DIR/build.gradle"; then
-              PROJECT="$DIR"
-              break
-            fi
-          done < <(find source -name settings.gradle -o -name settings.gradle.kts | while read f; do printf '%s\0' "$f"; done)
-
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: Struktur Gradle tidak ditemukan"
-            exit 1
-          fi
-
-          echo "Project: $PROJECT"
-          echo "project_dir=$PROJECT" >> "$GITHUB_OUTPUT"
-
       - name: Configure Android Gradle Plugin
         working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          files = list(Path(".").rglob("build.gradle")) + list(Path(".").rglob("build.gradle.kts"))
+          version = "8.6.1"
 
+          candidates = [
+              Path("build.gradle.kts"),
+              Path("build.gradle")
+          ]
+
+          build_file = next(
+              (p for p in candidates if p.is_file()),
+              None
+          )
+
+          if build_file is None:
+              raise SystemExit("Root Gradle build file tidak ditemukan")
+
+          text = build_file.read_text()
+          lines = text.splitlines()
           found = False
 
-          for path in files:
-              text = path.read_text()
+          for i, line in enumerate(lines):
+              if "com.android.application" not in line:
+                  continue
 
-              pattern = r"""(id\s*\(?\s*['"]com\.android\.application['"]\s*\)?)"""
-
-              def replace(match):
-                  global found
-                  found = True
-                  return match.group(1) + " version '8.6.1'"
-
-              text = re.sub(
-                  pattern + r"(?!\s+version)",
-                  replace,
-                  text
+              indent = re.match(r"\s*", line).group()
+              apply_false = bool(
+                  re.search(r"\bapply\s+false\b", line)
               )
 
-              path.write_text(text)
+              if build_file.suffix == ".kts":
+                  replacement = (
+                      indent +
+                      'id("com.android.application") version "' +
+                      version + '"'
+                  )
+              else:
+                  replacement = (
+                      indent +
+                      "id 'com.android.application' version '" +
+                      version + "'"
+                  )
+
+              if apply_false:
+                  replacement += " apply false"
+
+              lines[i] = replacement
+              found = True
 
           if not found:
-              raise SystemExit("ERROR: Deklarasi com.android.application tidak ditemukan")
+              raise SystemExit(
+                  "Plugin com.android.application tidak ditemukan"
+              )
 
-          print("Android Gradle Plugin disiapkan: 8.6.1")
+          build_file.write_text("\n".join(lines) + "\n")
+
+          print("Plugin berhasil diperbaiki:")
+          print(build_file)
+          print("\n".join(
+              line for line in lines
+              if "com.android.application" in line
+          ))
           PY
-
-      - name: Build debug APK
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        run: |
-          gradle --no-daemon clean assembleDebug
-
-      - name: Find APK
-        id: apk
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        run: |
-          APK=$(find . -type f -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan"
-            exit 1
-          fi
-
-          echo "APK ditemukan: $APK"
-          echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK" >> "$GITHUB_OUTPUT"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ChromeVectorUA-v1.3-debug
-          path: ${{ steps.apk.outputs.apk_path }}
-          if-no-files-found: error
-          retention-days: 14
